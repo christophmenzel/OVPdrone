@@ -7,6 +7,8 @@ import barometer
 
 class Drone(object):
 
+	MQTT_HOST = "tensor2.ddns.net";
+
 	# define mqtt topics
 	TOPIC_STATUS = 'drone/status'
 
@@ -22,7 +24,7 @@ class Drone(object):
 
 	def initialize():
 		# Check GSM connection here!
-		# TODO: ping tensor-external.ddns.net
+		# TODO: ping MQTT_HOST
 		self.gsm_connected = True
 		
 		# Establish MQTT connection
@@ -42,14 +44,14 @@ class Drone(object):
 
 		def on_disconnect(client, userdata, rc):
 		    print("disconnected. Reconnecting...")
-		    client.connect("tensor-external.ddns.net", 1883)
+		    client.connect(MQTT_HOST, 1883)
 
 		self.mqttClient = paho.Client()
 		self.mqttClient.on_connect = on_connect
 		self.mqttClient.on_subscribe = on_subscribe
 		self.mqttClient.on_message = on_message
 		self.mqttClient.on_disconnect = on_disconnect
-		self.mqttClient.connect("tensor-external.ddns.net", 1883)
+		self.mqttClient.connect(MQTT_HOST, 1883)
 		self.mqttClient.loop_start()
 
 	    # Determine home base GPS position
