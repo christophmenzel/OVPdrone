@@ -76,7 +76,7 @@ def stateEstimation(sens,state):
 
 def missionControl():
     # GSM connection to set current mission
-    # 1) IDENTIFY: Perform actions to identify drone model
+    # 1) IDENTIFY: Perform actions to identify drone model, identify rotor omega-F-kennlinie
     # 2) HOVER: keep position at specified height
     # 3) RETURN HOME: get back to intial position and land
     # 4) COORD: fly directly to target coordinates
