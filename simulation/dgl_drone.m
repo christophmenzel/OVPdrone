@@ -58,7 +58,7 @@ ez = [0; 0; 1];
 
 % Schubkräfte (abhängig von Geometrie und Drehzahl)
 % T(i) = BladeLift(r*omega-vel_horz) + BladeLift(r*omega+vel_horz)
-T = data.cT*data.rho*data.A1*data.r^2 * rpms;
+T = data.cT * rpms; %data.cT*data.rho*data.A1*data.r^2
 
 % Gesamtschubkraft (Summer der vertik. Kräfte)
 F_T = [ 0      ; ...
@@ -96,7 +96,7 @@ M_H = [ data.h * ey'*F_H                                           ;...
         data.l * ( F_Hi(2,1) - F_Hi(2,3) + F_Hi(1,2) - F_Hi(1,4) )]; % 
 
 % Total force
-F_ges = F_T + F_H + F_W + q.rotate(F_G);
+F_ges = F_T + F_H + F_W + q.rotateToBody(F_G);
     
 % Total torque
 M_ges = M_T + M_D + M_R + M_H;
@@ -122,14 +122,14 @@ M_ges = M_T + M_D + M_R + M_H;
 %            *vel;
 
 % Velocity in Inertial System from quaternion and body velocity
-dx(1:3) = q.rotate(vel);
+dx(1:3) = q.rotateToWorld(vel);
       
 % Linear Accelerations in Body System
 dx(4:6) = F_ges - cross( omega_B, data.m * vel );
 
 % Angular Position Quaternion
-qneu = qmultiply(q,quaternion(0,omega_B));
-dx(7:10) = 0.5*qneu.getVector();
+qneu = qmultiply(q,quaternion(0,-omega_B));
+dx(7:10) = qneu.getVector();
 
 % Angular Accelerations
 M_R_acc = [ 0; 0; - data.I_R(3,3) * dOmega_R ];
