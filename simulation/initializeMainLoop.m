@@ -1,0 +1,17 @@
+x_run = x0;
+q_run = q0;
+u_run = u0;
+x = x0';
+q = q0;
+t = t0;
+u.u_ges = u0;
+u.u_h = 0;
+u.u_h_int = 0;
+u.u_h_d = 0;
+u.u_ax_err = 0;
+u.u_omega = 0;
+err.h = 0;
+err.h_int = 0;
+err.h_d = 0;
+err_h_int = 0;
+err_h_prev = 0;

@@ -1,72 +1,306 @@
+clear all
+
 global data;
 
-% Environment
-data.g = 0; %9.81;
-data.rho = 1;
-
 % Drone
-data.m = 1;
-data.l = 1;
-data.h = 1;
-data.r = 1;
-data.cT = 1;
-data.cW = 1;
+data.m = 2; % kg - total drone mass
+data.l = 0.5; % m - arm length
+data.h = 0.05; % m - height of rotor COG above drone COG
+data.r = 0.1; % m - rotor radius
+data.cT = 1; % unitless - lift coefficient
+data.cW = 0; % drag coefficient
 data.A1 = 1;
 data.A2 = 1;
-data.dirs = [1 -1 1 -1];
-data.I_x = 1;
-data.I_y = 1;
-data.I_z = 1;
-data.I_Rx = 1;
-data.I_Ry = 1;
-data.I_Rz = 1;
+data.dirs = [1; -1; 1; -1];
+data.I_x = 0.01;
+data.I_y = 0.01;
+data.I_z = 0.01;
+data.I_Rx = 0.001;
+data.I_Ry = 0.001;
+data.I_Rz = 0.001;
 
 % Intertia
 I_B = diag([data.I_x,data.I_y,data.I_z]);
 I_R_B = [4*data.h^2+2*data.l^2 0 0;...
-         0 4*data.h^2+2*data.l^2 0;...
-         0 0      4*data.l^2];
+    0 4*data.h^2+2*data.l^2 0;...
+    0 0      4*data.l^2];
 data.I_R = diag([data.I_Rx,data.I_Ry,data.I_Rz]);
 data.I_Q = I_B + I_R_B + 4*data.I_R;
 
+% Environment
+data.g = 1; %9.81;
+data.rho = 1;
+
 % Anfangsbedingungen
 t0 = 0;
-t1 = 1;
+t1 = 10;
 dt = 0.01;
 
 pos = [0,0,0]';
 vel = [0,0,0]';
-ang = [0,0,0]
+ang = [0,0,0]';
+rot = [0,0.5,0]';
 
-x = zeros(1,16);
-x(13) = 1;
+x0 = [pos; vel; 1; 0; 0; 0; rot];
+q0 = quaternion([1; 0; 0; 0]);
 
-u = 1*[0 0 0 0];
-du = zeros(1,4);
+u0 = 1*[0 0 0 0]';
+du = zeros(4,1);
 
-% Main Loop
-% figure(1)
-% hold on
-% for t = t0:dt:t1
-%     [t,x] = ode45(@(t,x) dgl_drone(t,x,u,du),[t t+dt],x(end,:));
-%     plot(t,x(:,3),'b',t,x(:,9),'r',t,x(:,13),'k');
-% end
+FD = @(t) interp1([0 t1/2 t1/2+5*dt t1/2+6*dt t1],[],t);
 
-[t,x] = ode45(@(t,x) dgl_drone(t,x,u,du),[t0 t1],x(end,:));
+%[t,x] = ode45(@(t,x) dgl_drone(t,x,u,du),[t0:dt:t1],x0);
+x_run = x0;
+q_run = q0;
+u_run = u0;
+t_ges = [t0:dt:t1];
+x = x0';
+q = q0;
+t = t0;
+u.u_ges = u0;
+u.u_h = 0;
+u.u_h_int = 0;
+u.u_h_d = 0;
+u.u_ax_err = 0;
+u.u_omega = 0;
+err.h = 0;
+err.h_int = 0;
+err.h_d = 0;
+err_h_int = 0;
+err_h_prev = 0;
+for tt = t_ges
+    % Update the state of the physical drone
+    dx = dgl_drone(tt,x_run,q_run,u_run,du,FD(tt),MD(tt));
+    x_run([1:6 11:13]) = x_run([1:6 11:13]) + dt*dx([1:6 11:13]);
+    omega_B = x_run(11:13);
+    alpha = dt*norm(omega_B);
+    dq = quaternion(cos(alpha/2),x_run(11:13)/norm(x_run(11:13))*sin(alpha/2));
+    q_run = qmultiply(dq,q_run);
+    if q_run.a < 0
+        q_run = quaternion(-q_run.a,-q_run.i,-q_run.j,-q_run.k);
+    end
+    q_run = q_run.normalize();
+    dummy = 1;
+    x(end+1,:) = x_run';
+    q(end+1) = q_run;
+    t(end+1,1) = tt;
+    
+    % Update the rotor rpms
+    h_soll = -1;
+    h_ist = x_run(3);
+    g_soll = [0;0;1];
+    g_ist = q_run.rotateToBody([0;0;1]);
+    ax_err = cross(g_soll,g_ist);
+    err_h = (h_soll - h_ist);
+    err_h_d = (err_h - err_h_prev)/dt;
+    err_h_prev = err_h;
+    err_h_int = err_h_int + dt*err_h;
+    err.h(end+1) = err_h;
+    err.h_int(end+1) = err_h_int;
+    err.h_d(end+1) = err_h_d;
+    Ph = -1 * ones(4,1);
+    Ph_int = -0.1 * ones(4,1);
+    Ph_d = -10 * ones(4,1);
+    Pq = 1*[0  1 0;...
+          -1 0 0;...
+          0 -1 0;...
+          1  0 0];
+    Pw = -1*[0 1 0;...
+          -1 0 0;...
+          0 -1 0;...
+          1 0 0];
+    u_old = u_run;
+    u_h = Ph*err_h;
+    u_h_int = Ph_int*err_h_int;
+    u_h_d = Ph_d * err_h_d;
+    u_ax_err = Pq * ax_err;
+    u_omega = Pw * x_run(11:13);
+    u_run = u_h + u_h_int + u_h_d +  u_ax_err + u_omega;
+    u.u_ges(end+1,1:4) = u_run';
+    u.u_h(end+1,1:4) = u_h';
+    u.u_h_int(end+1,1:4) = u_h_int';
+    u.u_h_d(end+1,1:4) = u_h_d';
+    u.u_ax_err(end+1,1:4) = u_ax_err';
+    u.u_omega(end+1,1:4) = u_omega';
+    du = (u_run - u_old)/dt;
+    dummy = 1;
+end
 
-figure(1)
-clf
-% Linear Position and velocity
-subplot(3,2,1)
-plot(t,x(:,1),'b',t,x(:,7),'r');
-subplot(3,2,3)
-plot(t,x(:,2),'b',t,x(:,8),'r');
-subplot(3,2,5)
-plot(t,x(:,3),'b',t,x(:,9),'r');
-% Angular position and velocity
-subplot(3,2,2)
-plot(t,x(:,4),'b',t,x(:,10),'r');
-subplot(3,2,4)
-plot(t,x(:,5),'b',t,x(:,11),'r');
-subplot(3,2,6)
-plot(t,x(:,6),'b',t,x(:,12),'r');
+%% Plot 3D Model
+
+% Re-Calculate global states
+for k = 1:length(t)
+    %q_mom = quaternion(x(k,7:10));
+    q_mom = q(k);
+    q1(k) = q_mom.a;
+    q2(k) = q_mom.i;
+    q3(k) = q_mom.j;
+    q4(k) = q_mom.k;
+    vel_E(1:3,k) = q_mom.rotateToWorld(x(k,4:6)');
+    phi(k)   = atan2(2*(q_mom.a*q_mom.i+q_mom.j*q_mom.k),q_mom.a^2-q_mom.i^2-q_mom.j^2+q_mom.k^2);
+    theta(k) = asin(2*(q_mom.a*q_mom.j-q_mom.k*q_mom.i));
+    psi(k)   = atan2(2*(q_mom.a*q_mom.k+q_mom.i*q_mom.j),q_mom.a^2+q_mom.i^2-q_mom.j^2-q_mom.k^2);
+    omega_E(1:3,k) = q_mom.rotateToWorld(x(k,11:13)');
+end
+
+plotMovie = true;
+if plotMovie
+    valprev = x(1,:);
+    for j = 1:length(t)
+        val = x(j,:)';
+        %q_mom = quaternion(val(7:10));
+        q_mom = q(j)
+        ax = q_mom.getVector();
+        if ax(1) > 0
+            alpha = 2*acos(ax(1));
+            rotAx = ax(2:4);
+        else
+            alpha = 2*acos(-ax(1));
+            rotAx = -ax(2:4);
+        end
+        figure(3)
+        clf;
+        hold on;
+        arms = data.l*[0 1 0 0 -1 0 0; 0 0 -1 0 0 0 1; 0 0 0 0 0 0 0];
+        arms_rot = q_mom.rotateToWorld(arms);
+        vel_rot = q_mom.rotateToWorld(val(4:6));
+        plot3(arms_rot(1,1:2)+val(1),arms_rot(2,1:2)+val(2),(arms_rot(3,1:2)+val(3)),'r');
+        plot3(arms_rot(1,3:7)+val(1),arms_rot(2,3:7)+val(2),(arms_rot(3,3:7)+val(3)),'k');
+        plot3([val(1) val(1)],[val(2) val(2)],[0 val(3)],'b--o');
+        plot3(x(1:j,1),x(1:j,2),x(1:j,3),'r');
+        plot3([0 vel_rot(1)/norm(vel_rot)]+val(1),[0 vel_rot(2)/norm(vel_rot)]+val(2),([0 vel_rot(3)/norm(vel_rot)]+val(3)),'g-d');
+        text(vel_rot(1)/norm(vel_rot)+val(1),vel_rot(2)/norm(vel_rot)+val(2),vel_rot(3)/norm(vel_rot)+val(3),num2str(norm(vel_rot)));
+        plot3([0 rotAx(1)]+val(1),[0 rotAx(2)]+val(2),([0 rotAx(3)]+val(3)),'m-o');
+        text(rotAx(1)+val(1),rotAx(2)-val(2),rotAx(3)+val(3),num2str(alpha*180/pi));
+        title(['V = ' num2str(u.u_ges(j,1)) ' / L = ' num2str(u.u_ges(j,2)) ' / H = ' num2str(u.u_ges(j,3)) ' / R = ' num2str(u.u_ges(j,4))]);
+        xlabel('x');
+        ylabel('y');
+        zlabel('z');
+        view(-30,30)
+        axis equal
+        xlim([val(1)-1 val(1)+1]);
+        ylim([val(2)-1 val(2)+1]);
+        zlim([val(3)-1 val(3)+1]);
+        drawnow
+        if mod(j,30) == 0
+            %pause;
+        end
+        valprev = val;
+    end
+end
+
+%% Plot graphs
+plotGraphs = true;
+if plotGraphs
+    % Plot body coordinates
+    figure(1)
+    rows = 4;
+    cols = 3;
+    clf;
+    % Linear position and velocity
+    subplot(rows,cols,1)
+    plot(t,x(:,4));
+    ylabel('vx');
+    subplot(rows,cols,4)
+    plot(t,x(:,5));
+    ylabel('vy');
+    subplot(rows,cols,7)
+    plot(t,x(:,6));
+    ylabel('vz');
+    subplot(rows,cols,2)
+    plot(t,x(:,11));
+    ylabel('dOx');
+    subplot(rows,cols,5)
+    plot(t,x(:,12));
+    ylabel('dOy');
+    subplot(rows,cols,8)
+    plot(t,x(:,13));
+    ylabel('dOz');
+    % Angular position and velocity
+    subplot(rows,cols,3)
+    plot(t,q1,'b',t,2*acos(q1),'r');
+    ylabel('q.a');
+    subplot(rows,cols,6)
+    plot(t,q2);
+    ylabel('q.i');
+    subplot(rows,cols,9)
+    plot(t,q3);
+    ylabel('q.j');
+    subplot(rows,cols,12)
+    plot(t,q4);
+    ylabel('q.k');
+    
+    
+    % Plot world coordinates
+    figure(2)
+    rows = 6;
+    cols = 2;
+    clf;
+    % Linear position and velocity
+    subplot(rows,cols,1)
+    plot(t,x(:,1));
+    ylabel('x');
+    subplot(rows,cols,3)
+    plot(t,x(:,2));
+    ylabel('y');
+    subplot(rows,cols,5)
+    plot(t,x(:,3));
+    ylabel('z');
+    subplot(rows,cols,7)
+    plot(t,vel_E(1,:));
+    ylabel('vx');
+    subplot(rows,cols,9)
+    plot(t,vel_E(2,:));
+    ylabel('vy');
+    subplot(rows,cols,11)
+    plot(t,vel_E(3,:));
+    ylabel('vz');
+    % Angular position and velocity
+    subplot(rows,cols,2)
+    plot(t,phi);
+    ylabel('phi');
+    subplot(rows,cols,4)
+    plot(t,theta);
+    ylabel('theta');
+    subplot(rows,cols,6)
+    plot(t,psi);
+    ylabel('psi');
+    subplot(rows,cols,8)
+    plot(t,omega_E(1,:));
+    ylabel('dphi');
+    subplot(rows,cols,10)
+    plot(t,omega_E(2,:));
+    ylabel('dtheta');
+    subplot(rows,cols,12)
+    plot(t,omega_E(3,:));
+    ylabel('dpsi');
+    
+    figure(3)
+    rows = 3;
+    cols = 3;
+    subplot(rows,cols,1)
+    plot(t,err.h);
+    ylabel('err h');
+    subplot(rows,cols,2)
+    plot(t,err.h_int);
+    ylabel('err h int');
+    subplot(rows,cols,3)
+    plot(t,err.h_d);
+    ylabel('err h d');
+    subplot(rows,cols,4)
+    plot(t,u.u_h);
+    ylabel('u h');
+    subplot(rows,cols,5)
+    plot(t,u.u_h_int);
+    ylabel('u h int');
+    subplot(rows,cols,6)
+    plot(t,u.u_h_d);
+    ylabel('u h d');
+    subplot(rows,cols,7)
+    plot(t,u.u_ax_err);
+    ylabel('u ax err');
+    subplot(rows,cols,8)
+    plot(t,u.u_omega);
+    ylabel('u omega');
+    
+end

@@ -28,7 +28,7 @@
 %         omega_3
 %     ]
 
-function dx = dgl_drone(t,x,rpms,drpms)
+function dx = dgl_drone(t,x,q,rpms,drpms,F_Dist,M_Dist)
 %% Preparation
 
 global data;
@@ -44,10 +44,6 @@ omega_B = x(11:13);
 % Get rotor angular vel and acc (Stellgrößen)
 Omega_R = sum(data.dirs .* rpms);
 dOmega_R = sum(data.dirs .* drpms);
-
-% create quaternion object from state vector
-q = quaternion(x(7:10));
-q.normalize();
 
 % Unity vectors
 ex = [1; 0; 0];
@@ -96,10 +92,10 @@ M_H = [ data.h * ey'*F_H                                           ;...
         data.l * ( F_Hi(2,1) - F_Hi(2,3) + F_Hi(1,2) - F_Hi(1,4) )]; % 
 
 % Total force
-F_ges = F_T + F_H + F_W + q.rotateToBody(F_G);
+F_ges = F_T + F_H + F_W + q.rotateToBody(F_G + F_Dist*[0;0;1]);
     
 % Total torque
-M_ges = M_T + M_D + M_R + M_H;
+M_ges = M_T + M_D + M_R + M_H + q.rotateToBody(M_Dist*[0;1;0]);
 
 %% Equations of motion
 
@@ -123,17 +119,23 @@ M_ges = M_T + M_D + M_R + M_H;
 
 % Velocity in Inertial System from quaternion and body velocity
 dx(1:3) = q.rotateToWorld(vel);
-      
+newVel = dx(1:3);
+
 % Linear Accelerations in Body System
-dx(4:6) = F_ges - cross( omega_B, data.m * vel );
+dx(4:6) = F_ges/data.m - 2*cross(omega_B, vel);
+newAcc = dx(4:6);
 
 % Angular Position Quaternion
-qneu = qmultiply(q,quaternion(0,-omega_B));
-dx(7:10) = qneu.getVector();
+dq = qmultiply(q,quaternion(0,omega_B));
+%dq2 = qmultiply(quaternion(0,omega_B),q);
+%dx(7:10) = 0.5*dq.getVector();
+%newDq = dx(7:10);
 
 % Angular Accelerations
 M_R_acc = [ 0; 0; - data.I_R(3,3) * dOmega_R ];
 M_gyro = cross( omega_B, data.I_Q*omega_B );
 M_R_gyro = cross( omega_B, [0;0;data.I_R(3,3) * Omega_R] );
 dx(11:13) = diag(1./diag(data.I_Q)) * ( M_ges + M_R_acc + M_gyro + M_R_gyro );
+newDo = dx(11:13);
 
+dummy = 1;
