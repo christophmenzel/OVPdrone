@@ -1,6 +1,6 @@
 E = eye(3);
 alpha = 45 *pi/180;
-q1 = quaternion(cos(alpha/2),[0;1;0]*sin(alpha/2));
+q1 = quaternion(cos(alpha/2),[1;0;0]*sin(alpha/2));
 q2 = quaternion(cos(alpha/2),[1;0;0]*sin(alpha/2));
 q12 = qmultiply(q2,q1);
 q21 = qmultiply(q1,q2);

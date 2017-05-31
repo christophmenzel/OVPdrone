@@ -74,14 +74,14 @@ classdef quaternion
                 obj.j/abs(obj), ...
                 obj.k/abs(obj));
         end
-        function v2 = rotateToWorld(obj,v1)
+        function v2 = rotateFromBodyToWorld(obj,v1)
             v2 = zeros(size(v1));
             for ind = 1:size(v1,2)
                 prod = qmultiply(obj,qmultiply(quaternion(0,v1(1:3,ind)),obj.conjugated()));
                 v2(1:3,ind) = prod.vectorPart();
             end
         end
-        function v2 = rotateToBody(obj,v1)
+        function v2 = rotateFromWorldToBody(obj,v1)
             v2 = zeros(size(v1));
             for ind = 1:size(v1,2)
                 prod = qmultiply(obj.conjugated(),qmultiply(quaternion(0,v1(1:3,ind)),obj));

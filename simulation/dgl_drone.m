@@ -69,9 +69,7 @@ F_H = sum(F_Hi,2);
 F_W = [-data.cW*data.rho/2*data.A2 * vel_horz*norm(vel_horz); 0];
 
 % Gravity
-F_G = [0;
-         0;
-         data.m*data.g];
+F_G = [0; 0; data.m*data.g];
 
 % Drehmoment aus Schubkräften (abhängig von Geometrie)
 M_T = [ data.l*(T(2) - T(4)); ...
@@ -92,10 +90,10 @@ M_H = [ data.h * ey'*F_H                                           ;...
         data.l * ( F_Hi(2,1) - F_Hi(2,3) + F_Hi(1,2) - F_Hi(1,4) )]; % 
 
 % Total force
-F_ges = F_T + F_H + F_W + q.rotateToBody(F_G + F_Dist*[0;0;1]);
+F_ges = F_T + F_H + F_W + q.rotateFromWorldToBody(F_G + F_Dist*[0;0;1]);
     
 % Total torque
-M_ges = M_T + M_D + M_R + M_H + q.rotateToBody(M_Dist*[0;1;0]);
+M_ges = M_T + M_D + M_R + M_H + q.rotateFromWorldToBody(M_Dist*[0;1;0]);
 
 %% Equations of motion
 
@@ -118,18 +116,12 @@ M_ges = M_T + M_D + M_R + M_H + q.rotateToBody(M_Dist*[0;1;0]);
 %            *vel;
 
 % Velocity in Inertial System from quaternion and body velocity
-dx(1:3) = q.rotateToWorld(vel);
+dx(1:3) = q.rotateFromBodyToWorld(vel);
 newVel = dx(1:3);
 
 % Linear Accelerations in Body System
 dx(4:6) = F_ges/data.m - 2*cross(omega_B, vel);
 newAcc = dx(4:6);
-
-% Angular Position Quaternion
-dq = qmultiply(q,quaternion(0,omega_B));
-%dq2 = qmultiply(quaternion(0,omega_B),q);
-%dx(7:10) = 0.5*dq.getVector();
-%newDq = dx(7:10);
 
 % Angular Accelerations
 M_R_acc = [ 0; 0; - data.I_R(3,3) * dOmega_R ];
