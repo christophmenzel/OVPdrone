@@ -26,5 +26,5 @@ data.I_R = diag([data.I_Rx,data.I_Ry,data.I_Rz]);
 data.I_Q = I_B + I_R_B + 4*data.I_R;
 
 % Environment
-data.g = 0; %9.81;
+data.g = 9.81; %9.81;
 data.rho = 1;

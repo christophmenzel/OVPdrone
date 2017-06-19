@@ -10,15 +10,20 @@ dt = 0.01;
 t_ges = [t0:dt:t1];
 
 % Mission Settings
-h_soll = -1;
+pos_soll = [0;0;0];
 g_soll = [0;0;1];
 
 % Controller Settings
-Kh_P = -0.5 * ones(4,1);
-Kh_I = -3   * ones(4,1);
-Kh_D = -10  * ones(4,1);
-Pq = 1  * [0  1 0; -1 0 0; 0 -1 0; 1  0 0];
-Pw = -1 * [0 1 0; -1 0 0; 0 -1 0; 1 0 0];
+N_acc = diag([1 1 1]);
+K_pos = [[-1;0;1;0],[0;1;0;-1],[-1;-1;-1;-1]];
+Kp = diag([0,0,0]); % 40, 40 , 40
+Ki = diag([0,0,0]); % 10, 10 , 18
+Kd = diag([0,0,0]);  % 20, 20 , 6
+K_P = K_pos * Kp;
+K_I = K_pos * Ki;
+K_D = K_pos * Kd;
+Pq =  50 * [[0;1;0;-1],[1;0;-1;0],[0;0;0;0]]; %50
+Pw = -6 * [[0;1;0;-1],[1;0;-1;0],[0;0;0;0]]; %-6
 
 % Initial State
 pos = [0,0,0]';
@@ -27,15 +32,16 @@ ang = [0,0,0]';
 rot = [0,0,0]';
 x0 = [pos; vel; 1; 0; 0; 0; rot];
 alpha0 = 0*pi/180;
-q0 = quaternion(cos(alpha0/2),sin(alpha0/2)*[0; 0; 1]);
+q0 = quaternion(cos(alpha0/2),sin(alpha0/2)*[1; 1; 0]);
+% TODO: q0 should be calculated from the inital measurement of g
 
 % Control Variables
 u0 = [0; 0; 0; 0];
 du = [0; 0; 0; 0];
 
 % Disturbances
-FD = @(t) interp1([0 t1/2 t1/2+dt t1/2+5*dt t1/2+6*dt t1],[0 0 0 0  0 0],t);
-MD = @(t) interp1([0 t1/2 t1/2+dt t1/2+5*dt t1/2+6*dt t1],[0 0 0 0  0 0],t);
+FD = @(t) interp1([0 t1/2 t1/2+dt t1/2+5*dt t1/2+6*dt t1],[0 0 0 0 0 0],t);
+MD = @(t) interp1([0 t1/2 t1/2+dt t1/2+5*dt t1/2+6*dt t1],[0 0 0 0 0 0],t);
 
 % Start Simulation
 initializeMainLoop;
@@ -62,37 +68,49 @@ for tt = t_ges
     end
     q_run = q_run.normalize();
     
-    % Calculate the control errors
-    err_h = (h_soll - x_run(3));
-    err_h_d = (err_h - err_h_prev)/dt;
-    err_h_prev = err_h;
-    err_h_int = err_h_int + dt*err_h; 
-    ax_err = cross( g_soll, q_run.rotateFromWorldToBody(g_soll) );
+    % Absolute position error
+    err_pos = pos_soll - x_run(1:3);
+    
+    % Required total thrust based on z-distance in body frame
+    % This does not consider thrust required to cancel gravity
+    % This vector point from COG to target position in body frame
+    target_dir = q_run.rotateFromWorldToBody((pos_soll - x_run(1:3)));
+    target_acc = N_acc * target_dir;
+    
+    
+    
+    % Calculate the desired orientation
+    if isempty(err_pos_prev)
+        err_pos_prev = err_pos;
+    end
+    err_pos_d = (err_pos - err_pos_prev)/dt;
+    err_pos_prev = err_pos;
+    err_pos_int = err_pos_int + dt*err_pos; 
+    
+    % Orientation error
+    ax_err = cross( [0;0;1], q_run.rotateFromWorldToBody(g_ges) );
     
     % Calculate the rotor rpms and their derivative
     u_old = u_run;
-    u_h = Kh_P*err_h;
-    u_h_int = Kh_I*err_h_int;
-    u_h_d = Kh_D * err_h_d;
+    u_pos = K_P*err_pos;
+    u_pos_int = K_I*err_pos_int;
+    u_pos_d = K_D * err_pos_d;
     u_ax_err = Pq * ax_err;
     u_omega = Pw * x_run(11:13);
-    u_run = u_h + u_h_int + u_h_d +  u_ax_err + u_omega;
+    u_run = u_pos + u_pos_int + u_pos_d +  u_ax_err + u_omega;
     du = (u_run - u_old)/dt;
-    
-    u_run = 0 * u_run;
-    du = 0 * du;
     
     % Save data for plotting
     t(end+1,1) = tt;
     x(end+1,:) = x_run';
     q(end+1) = q_run;
-    err.h(end+1) = err_h;
-    err.h_int(end+1) = err_h_int;
-    err.h_d(end+1) = err_h_d;
+    err.pos(end+1,1:3) = err_pos';
+    err.pos_int(end+1,1:3) = err_pos_int';
+    err.pos_d(end+1,1:3) = err_pos_d';
     u.u_ges(end+1,1:4) = u_run';
-    u.u_h(end+1,1:4) = u_h';
-    u.u_h_int(end+1,1:4) = u_h_int';
-    u.u_h_d(end+1,1:4) = u_h_d';
+    u.u_pos(end+1,1:4) = u_pos';
+    u.u_pos_int(end+1,1:4) = u_pos_int';
+    u.u_pos_d(end+1,1:4) = u_pos_d';
     u.u_ax_err(end+1,1:4) = u_ax_err';
     u.u_omega(end+1,1:4) = u_omega';
     
